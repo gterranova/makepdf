@@ -1,0 +1,86 @@
+\documentclass[a4paper,12pt]{book}
+\usepackage[top=3cm]{geometry}
+\usepackage{ae,aecompl}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+\usepackage{color}
+\usepackage{verbatim}
+\usepackage{textcomp}
+\usepackage{makeidx}
+\makeindex
+\usepackage[pdftex]{graphicx}
+\usepackage[final]{pdfpages}
+
+\makeatletter
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% LyX specific LaTeX commands.
+\newcommand{\lyxline}[1][1pt]{\par\noindent\rule[.5ex]{\linewidth}{#1}\par}
+
+\usepackage{ddreport}
+
+\makeatother
+
+\usepackage[italian]{babel}
+
+\begin{document}
+\begin{titlepage}
+
+\begin{center}
+\includegraphics{testata_logo}\textbf{\Huge \lyxline{\Huge}}
+\par\end{center}{\Huge \par}
+
+\begin{center}
+\textbf{\textsc{\textcolor{black}{\Huge @!items[0]['label']!@}}}
+\par\end{center}{\Huge \par}
+
+%\begin{center}
+%\textbf{\textsc{\textcolor{black}{\Huge @!items[0]['label']!@}}}
+%\par\end{center}{\Huge \par}
+
+\begin{center}
+\textbf{\Huge \lyxline{\Huge}}
+\par\end{center}{\Huge \par}
+
+\vfill{}
+
+
+\begin{center}
+\textbf{Studio Legale}\\
+\textbf{Macchi di Cellere Gangemi}\\
+via G. Serbelloni 4\\
+20122 Milano
+\par\end{center}
+
+\begin{center}
+\today
+\par\end{center}
+
+\end{titlepage}
+
+\tableofcontents{}
+@!setvar("markup", "['\\chapter', '\\section', '\\subsection', '\\subsubsection', '\\paragraph', '\\subparagraph', '\\subparagraph', '\\subparagraph', '\\subparagraph', '\\subparagraph', '\\subparagraph', '\\subparagraph']")!@
+<!--(macro includepdf)-->
+\includepdf[pages=-,scale=.90,offset=0 -1cm,pagecommand={\thispagestyle{fancy}}]{@!file!@}
+<!--(end)-->
+<!--(macro renderitem)-->
+$!markup[level]!${@!item['label']!@}
+  <!--(if item['data']['type'] == "item")-->
+    <!--(if item['data'].has_key('pdf'))-->
+@!includepdf(file=item['data']['pdf'])!@
+    <!--(end)-->
+  <!--(end)-->
+  <!--(if item.has_key('children'))-->
+    <!--(for child in item['children'])-->
+$!renderitem(level=level+1,item=child)!$
+    <!--(end)-->
+  <!--(end)-->
+<!--(end)-->
+<!--(if items[0].has_key('children'))-->
+  <!--(for child in items[0]['children'])-->
+$!renderitem(level=0,item=child)!$
+  <!--(end)-->
+<!--(end)-->
+\end{document}
+
