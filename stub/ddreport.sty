@@ -1,0 +1,81 @@
+%%
+%% This is file `mylayout.sty', generated
+%% on <1995/7/3> with the docstrip utility (2.2i).
+%%
+%% The original source files were:
+%%
+%% layout.dtx  (with options: `package')
+%%
+%% IMPORTANT NOTICE:
+%% This file is part of the `tools' bundle
+%% in the LaTeX2e distribution.
+%%
+%% You are not allowed to distribute this file.
+%% For distribution of the original source see
+%% the copyright notice in the source file, and
+%% in the file readme.txt distributed with the
+%% tools bundle.
+%%
+%% This file has been modified by Giuseppe Bilotta, to add
+%% italian support, where specified
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{ddreport}
+                [2010/01/25 v1.0
+                 DDReport]
+\ifx\pdfoutput\undefined % We're not running pdftex
+\else
+\usepackage{thumbpdf}
+\pdfcompresslevel=9
+\usepackage[unicode=true, 
+ bookmarks=true,bookmarksnumbered=false,bookmarksopen=false,
+ breaklinks=false,pdfborder={0 0 0},backref=false,colorlinks=false]
+ {hyperref}
+\hypersetup{pdftitle={Mesagne - Due Diligence Preliminare},
+ pdfauthor={Studio Legale Macchi di Cellere Gangemi}}
+\fi
+\usepackage{lshort}
+\usepackage{shortvrb,latexsym,lastpage}
+\usepackage[italian]{mylayout}
+\usepackage{url}
+\RequirePackage{colortbl, tabularx}
+
+\ifx\captionsitalian\undefined % We're not running pdftex
+\else
+\addto\captionsitalian{%
+  \renewcommand\bibname{Lista Documenti}%
+}
+\fi
+\ifx\prettyref\undefined % We're not running pdftex
+\else
+\newrefformat{cha}{Capitolo \ref{#1}}
+\newrefformat{sec}{paragrafo \ref{#1}}
+\newrefformat{sub}{paragrafo \ref{#1}}
+\newrefformat{par}{paragrafo \ref{#1}}
+\newrefformat{tab}{Tabella \ref{#1} a pagina \pageref{#1}}
+\newrefformat{fig}{Figura \ref{#1} a pagina \pageref{#1}}
+\fi
+\ifx\theindex\undefined % We're not running pdftex
+\else
+\let\myIndex\theindex\renewcommand{\theindex}{\cleardoublepage\myIndex\phantomsection\addcontentsline{toc}{chapter}{\indexname}}
+\fi
+\let\oldmarginpar\marginpar
+\def\marginpar#1{\oldmarginpar{\textsf{\small #1}}}
+\@ifundefined{comment}{}% do nothing if the comment environment is not defined
+  {% redefine the comment environment if it is defined
+   \renewenvironment{comment}%
+    {% replaces \begin{comment}
+     \par\medskip
+     \noindent\tabularx{\textwidth}{>{\columncolor[gray]{0.9}}X}
+%     \hline
+%     \emph{Commento:}% You can use any other text instead of "Comment:" or leave it
+     $\Rightarrow$ % You can use any other text instead of "Comment:" or leave it
+    }%
+    {% replaces \end{comment}
+     \endtabularx
+%     \hrule\par\medskip
+     {}\medskip{}
+    }%
+  }
+\endinput
+%%
+%% End of file `layout.sty'.
