@@ -1,2 +1,5 @@
 glob:miktex-portable/*
 glob:*.pyc
+syntax: glob
+build/*
+license.lic
