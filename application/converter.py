@@ -13,11 +13,13 @@ import pil2exe
 import os
 import math
 from base64 import b64encode
+import config
 
 def randStr(n):
     return b64encode(os.urandom(int(math.ceil(0.75*n))),'Az')[:n]
 
-tempprinter = "Metafile to EPS Converter"
+#tempprinter = "Metafile to EPS Converter"
+tempprinter = "MS Publisher Imagesetter"
 
 def word2eps(iname, oname):
     pythoncom.CoInitialize()
@@ -174,9 +176,8 @@ def _img2pdf(iname, oname):
 def eps2pdf(iname, oname):
 
     try:
-        epstopdf = os.path.join("miktex-portable","miktex","bin", "epstopdf.exe")
-        assert (os.path.exists(epstopdf))
-        proc = subprocess.call([epstopdf, iname], shell=True) #, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert (os.path.exists(config.epstopdf))
+        proc = subprocess.call([config.epstopdf, iname], shell=True) #, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except:
         return False
     return True
