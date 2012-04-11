@@ -8,16 +8,23 @@
 
 #tested on wxPython 2.5.4 and Python 2.4, under Windows and Linux
 
-import os
+import os, sys
 import  wx
+import wx.stc
 import thread
+import time
 
 import cPickle as pickle
 
 from shutil import copy, copytree, rmtree
+import config
 from converter import doc2pdf, img2pdf, randStr
 
-from license import License
+HAS_LICENCE=False
+
+if HAS_LICENCE:
+    from license import License
+    
 from MyFrame import MyFrame
 from MyTree import MyTreeCtrlPanel
 
@@ -29,9 +36,139 @@ class MyLog:
     def WriteText(self, text):
         print text
 
+class RedirectText:
+    def __init__(self,aWxTextCtrl):
+        self.out=aWxTextCtrl
+  
+    def write(self,string):
+        self.out.AddText(string)
+  
+class ProcessRunnerMix:
+    def __init__(self, input, handler=None):
+        if handler is None:
+            handler = self
+        self.handler = handler
+        handler.Bind(wx.EVT_IDLE, self.OnIdle)
+        handler.Bind(wx.EVT_END_PROCESS, self.OnProcessEnded)
+  
+        input.reverse() # so we can pop
+        self.input = input
+  
+        self.reset()
+  
+    def reset(self):
+        self.process = None
+        self.pid = -1
+        self.output = []
+        self.errors = []
+        self.inputStream = None
+        self.errorStream = None
+        self.outputStream = None
+        self.outputFunc = None
+        self.errorsFunc = None
+        self.finishedFunc = None
+        self.finished = False
+        self.responded = False
+  
+    def execute(self, cmd):
+        self.process = wx.Process(self.handler)
+        self.process.Redirect()
+  
+        self.pid = wx.Execute(cmd, wx.EXEC_ASYNC, self.process)
+  
+        self.inputStream = self.process.GetOutputStream()
+        self.errorStream = self.process.GetErrorStream()
+        self.outputStream = self.process.GetInputStream()
+  
+        # self.OnIdle()
+        wx.WakeUpIdle()
+  
+    def setCallbacks(self, output, errors, finished):
+        self.outputFunc = output
+        self.errorsFunc = errors
+        self.finishedFunc = finished
+  
+    def detach(self):
+        if self.process is not None:
+            self.process.CloseOutput()
+            self.process.Detach()
+            self.process = None
+  
+    def kill(self):
+        if self.process is not None:
+            self.process.CloseOutput()
+            if wx.Process.Kill(self.pid, wx.SIGTERM) != wx.KILL_OK:
+                wx.Process.Kill(self.pid, wx.SIGKILL)
+            self.process = None
+  
+    def updateStream(self, stream, data):
+        if stream and stream.CanRead():
+            if not self.responded:
+                self.responded = True
+            text = stream.read()
+            data.append(text)
+            return text
+        else:
+            return None
+  
+    def updateInpStream(self, stream, input):
+        if stream and input:
+            line = input.pop()
+            stream.write(line)
+  
+    def updateErrStream(self, stream, data):
+        return self.updateStream(stream, data)
+  
+    def updateOutStream(self, stream, data):
+        return self.updateStream(stream, data)
+  
+    def OnIdle(self, event=None):
+        if self.process is not None:
+            self.updateInpStream(self.inputStream, self.input)
+            e = self.updateErrStream(self.errorStream, self.errors)
+            if e is not None and self.errorsFunc is not None:
+                wx.CallAfter(self.errorsFunc, e)
+            o = self.updateOutStream(self.outputStream, self.output)
+            if o is not None and self.outputFunc is not None:
+                wx.CallAfter(self.outputFunc, o)
+  
+            #wxWakeUpIdle()
+            #time.sleep(0.001)
+  
+    def Close(self):
+        # print "Subprocess terminated"
+        return
+  
+    def OnProcessEnded(self, event):
+        self.OnIdle()
+  
+        if self.process:
+            self.process.Destroy()
+            self.process = None
+  
+        self.finished = True
+  
+        # XXX doesn't work ???
+        #self.handler.Disconnect(-1, wxEVT_IDLE)
+  
+        if self.finishedFunc:
+            wx.CallAfter(self.finishedFunc)
+  
+class ProcessRunner(wx.EvtHandler, ProcessRunnerMix):
+    def __init__(self, input):
+        wx.EvtHandler.__init__(self)
+        ProcessRunnerMix.__init__(self, input)
+  
+def wxPopen3(cmd, input, output, errors, finish, handler=None):
+    p = ProcessRunnerMix(input, handler)
+    p.setCallbacks(output, errors, finish)
+    p.execute(cmd)
+    return p
+
 class MainFrame(MyFrame):
     def __init__(self, *args, **kwds):
         MyFrame.__init__(self, *args, **kwds)
+        
         log = MyLog()
 
         # variables
@@ -39,89 +176,19 @@ class MainFrame(MyFrame):
         self.last_name_saved = ''
         self.replace = False
 
-
-##        self.SetIcon(wx.Icon("makepdf.ico", wx.BITMAP_TYPE_ICO))
-##        
-##        file = wx.Menu()
-##        new = wx.MenuItem(file, ID_NEW, '&New\tCtrl+N', 'Creates a new document')
-###        new.SetBitmap(wx.Bitmap('icons/stock_new-16.png'))
-##        file.AppendItem(new)
-##
-##        open = wx.MenuItem(file, ID_OPEN, '&Open\tCtrl+O', 'Open an existing file')
-###        open.SetBitmap(wx.Bitmap('icons/stock_open-16.png'))
-##        file.AppendItem(open)
-##        file.AppendSeparator()
-##
-##        save = wx.MenuItem(file, ID_SAVE, '&Save\tCtrl+S', 'Save the file')
-###        save.SetBitmap(wx.Bitmap('icons/stock_save-16.png'))
-##        file.AppendItem(save)
-##
-##        saveas = wx.MenuItem(file, ID_SAVE_AS, 'Save &As...\tShift+Ctrl+S', 
-##		'Save the file with a different name')
-###        saveas.SetBitmap(wx.Bitmap('icons/stock_save_as-16.png'))
-##        file.AppendItem(saveas)
-##        file.AppendSeparator()
-##
-##        quit = wx.MenuItem(file, ID_QUIT, '&Quit\tCtrl+Q', 'Quit the Application')
-###        quit.SetBitmap(wx.Bitmap('icons/stock_exit-16.png'))
-##        file.AppendItem(quit)
-##
-##        edit = wx.Menu()
-##
-##        view = wx.Menu()
-##        view.Append(ID_STATUS_TOGGLE, '&Statusbar', 'Show StatusBar')
-##
-##        make = wx.Menu()
-##        make.Append(ID_MAKE_PDF, '&Make PDF...', 'Make PDF')
-##
-##        help = wx.Menu()
-##        about = wx.MenuItem(help, ID_ABOUT, '&About\tF1', 'About Editor')
-###        about.SetBitmap(wx.Bitmap('icons/stock_about-16.png'))
-##        help.AppendItem(about)
-##
-##        menubar = wx.MenuBar()
-##        menubar.Append(file,"&File")
-##        menubar.Append(edit, "&Edit")
-##        menubar.Append(view, '&View')
-##        menubar.Append(make, '&Make')        
-##        menubar.Append(help, '&Help')
-##        self.SetMenuBar(menubar)
-##
-##        self.Bind(wx.EVT_MENU, self.OnSelectFolder, id=ID_NEW)
-##        self.Bind(wx.EVT_MENU, self.OnOpenFile, id=ID_OPEN)
-##        self.Bind(wx.EVT_MENU, self.OnSaveFile, id=ID_SAVE)
-##        self.Bind(wx.EVT_MENU, self.OnSaveAsFile, id=ID_SAVE_AS)                        
-##        self.Bind(wx.EVT_MENU, self.OnExit, id=ID_QUIT)
-##        self.Bind(wx.EVT_MENU, self.OnMakePDF, id=ID_MAKE_PDF)
-##        self.Bind(wx.EVT_MENU, self.ToggleStatusBar, id=ID_STATUS_TOGGLE)
-##        self.Bind(wx.EVT_MENU, self.OnAbout, id=ID_ABOUT)
-##        
-##
-##        tb = self.CreateToolBar( wx.TB_HORIZONTAL | wx.NO_BORDER | 
-##		wx.TB_FLAT | wx.TB_TEXT)
-##        isize = (32,32)
-###        tb.AddSimpleTool(wx.NewId(), wx.Bitmap(os.path.join("images","projectnew32.png"), wx.BITMAP_TYPE_PNG), 'New Project')
-##        tb.AddSimpleTool(ID_NEW, wx.Bitmap(os.path.join("images","importfolder32.png"), wx.BITMAP_TYPE_PNG), 'Import folder')
-##        tb.AddSimpleTool(ID_OPEN, wx.Bitmap(os.path.join("images","fileopen32.png"), wx.BITMAP_TYPE_PNG), 'Open')
-##        tb.AddSimpleTool(ID_SAVE, wx.Bitmap(os.path.join("images","filesave32.png"), wx.BITMAP_TYPE_PNG), 'Save')
-##        tb.AddSimpleTool(ID_SAVE_AS, wx.Bitmap(os.path.join("images","filesaveas32.png"), wx.BITMAP_TYPE_PNG), 'Save as...')                
-###        tb.AddSeparator()
-###        tb.AddSimpleTool(ID_ADD_FILE, wx.Bitmap(os.path.join("images","filenew32.png"), wx.BITMAP_TYPE_PNG), 'Add file')
-###        tb.AddSimpleTool(ID_ADD_FOLDER, wx.Bitmap(os.path.join("images","foldernew32.png"), wx.BITMAP_TYPE_PNG), 'Add folder')        
-##        tb.AddSeparator()
-##        tb.AddSimpleTool(ID_MAKE_PDF, wx.Bitmap(os.path.join("images","pdf32.png"), wx.BITMAP_TYPE_PNG), 'Make PDF')
-##        tb.AddSeparator()
-##        tb.AddSimpleTool(ID_ABOUT, wx.Bitmap(os.path.join("images","info32.png"), wx.BITMAP_TYPE_PNG), 'Help')
-##        tb.Realize()
-##
-##        self.StatusBar()
-##        self.Centre()
-
         self.pnl = MyTreeCtrlPanel(self, log)
         self.gauge = wx.Gauge(self)
-        self.log = wx.TextCtrl(self, -1, size=(500,100),
+##        self.log = wx.TextCtrl(self, -1, size=(500,100),
+##                               style = wx.TE_MULTILINE|wx.TE_READONLY|
+##                               wx.HSCROLL)
+
+        self.log = wx.stc.StyledTextCtrl(id=-1, parent=self, size=(500,100),
                                style = wx.TE_MULTILINE|wx.TE_READONLY|
                                wx.HSCROLL)
+
+        # -- Set up console redirection
+        redir = RedirectText(self.log)
+        sys.stdout = redir
         
         sizer = wx.BoxSizer(wx.VERTICAL)
         hbox1 = wx.BoxSizer(wx.HORIZONTAL)
@@ -137,11 +204,12 @@ class MainFrame(MyFrame):
         self.gauge.Show(False)
         self.SetSizer(sizer)
 
-        self.license = License.load("license.lic")
         self.mystatusbar.SetFieldsCount(3)
         self.mystatusbar.SetStatusWidths([-5, -1, -1])
-        
-        self.mystatusbar.SetStatusText( str(self.license), 0)
+
+        if HAS_LICENCE:
+            self.license = License.load("license.lic")            
+            self.mystatusbar.SetStatusText( str(self.license), 0)
 
         self.Show(True)
 
@@ -253,29 +321,29 @@ class MainFrame(MyFrame):
         finally:
             dlg.Destroy()
 
-    def makepdf(self, children):        
+    def makepdf(self, children):
         for item in children:
             if item['data']['type'] == 'item':
                 filename = item['data']['name']
                 ext = os.path.splitext(filename)[1].lower()
                 ofile_base = randStr(6)
-                ofile = "build/%s.pdf" % (ofile_base)
+                ofile = os.path.join(config.build_path, ofile_base+".pdf")
                 
-                if ext in ['.doc', '.docx'] and not os.path.basename(filename).startswith("~$"):
-                    self.log.WriteText("Converting %s...\n" % filename)
-                    temp_doc = "build/%s%s" % (ofile_base, ext)
+                if ext in ['.doc', '.docx', '.htm', '.html'] and not os.path.basename(filename).startswith("~$"):
+                    self.log.AddText("Converting %s...\n" % filename)
+                    temp_doc = os.path.join(config.build_path, ofile_base+ext)
                     copy (filename, temp_doc)
                     if doc2pdf(temp_doc):
                         item['data']['pdf'] = "%s.pdf" % ofile_base
 
                 elif ext in ['.pdf']:
-                    self.log.WriteText("Copying %s...\n" % filename)
+                    self.log.AddText("Copying %s...\n" % filename)
                     copy (filename, ofile)
                     item['data']['pdf'] = "%s.pdf" % ofile_base
 
                 elif ext in ['.gif', '.jpg', '.png', '.tif']:
-                    self.log.WriteText("Converting %s...\n" % filename)
-                    temp_img = "build/%s%s" % (ofile_base, ext)
+                    self.log.AddText("Converting %s...\n" % filename)
+                    temp_img = os.path.join(config.build_path, ofile_base+ext)
                     copy (filename, temp_img)
                     if img2pdf(temp_img):
                         item['data']['pdf'] = "%s.pdf" % ofile_base
@@ -286,106 +354,114 @@ class MainFrame(MyFrame):
                 self.makepdf(item['children'])
 
     def DoMakePDF(self):
-        current_path = os.getcwd()
-        build_path = os.path.abspath(os.path.join(os.getcwd(),"build"))
-        stub_path =  os.path.abspath(os.path.join(os.getcwd(),"stub"))
+        
+        assert(os.path.exists(config.stub_path))
+        assert(os.path.exists(config.pdflatex))
+        assert(os.path.exists(config.makeindex))
 
-        pdflatex = os.path.join(os.path.join(os.getcwd(),"miktex-portable","miktex","bin", "pdflatex.exe"))
-        makeindex = os.path.join(os.path.join(os.getcwd(),"miktex-portable","miktex","bin", "makeindex.exe"))
-
-        assert(os.path.exists(stub_path))
-        assert(os.path.exists(pdflatex))
-        assert(os.path.exists(makeindex))
-
+        wx.CallAfter(self.gauge.SetValue, 0)
+        self.log.ClearAll()
+        
         try:
-            rmtree(build_path, True)
-        except:
+            rmtree(config.build_path, True)
+        except e:
+            print e
             pass
         
-        copytree(stub_path, build_path)
+        copytree(config.stub_path, config.build_path)
         wx.CallAfter(self.gauge.SetValue, 5)
         
-        self.log.WriteText("Copying files...\n")
+        self.log.AddText("Copying files...\n")
         test = self.pnl.tree.SaveItemsToList(self.pnl.GetRootItem())        
         self.makepdf(test[0]['children'])
 
         import pyratemp
-        t = pyratemp.Template(filename=os.path.join(build_path, "export.tmpl"), encoding="utf-8", escape=pyratemp.LATEX)
+        t = pyratemp.Template(filename=os.path.join(config.build_path, "export.tmpl"), encoding="utf-8", escape=pyratemp.LATEX)
         result = t(items=test)
 
-        os.chdir(build_path)
+        os.chdir(config.build_path)
         
-        self.log.WriteText("Making LaTex source...\n")
+        self.log.AddText("Making LaTex source...\n")
         import codecs
-        codecs.open('export.tex', 'w', encoding='utf-8').write(result)
-        wx.CallAfter(self.gauge.SetValue, 10)
+        texfile = 'export.tex' #os.path.join(config.build_path, 'export.tex')
+        idxfile = 'export.idx' #os.path.join(config.build_path, 'export.idx')
         
-        import subprocess, sys
+        codecs.open(os.path.join(config.build_path, 'export.tex'), 'w', encoding='utf-8').write(result)
+      
+        def output(v):
+            # -- In this program we don't really need to see this
+            #    as the output is incorrectly going to errors first
+            print v
+            self.log.EnsureCaretVisible()
+            wx.Yield()
+            return
 
-        def myexec(cmd):            
-            proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            while True:
-                out = proc.stdout.read(1)
-                if out == '' and proc.poll() != None:
-                    break
-                if out != '':
-                    self.log.WriteText(out)
-                    while proc.poll() == None:
-                        self.log.WriteText(proc.stdout.readline())
-                (out, err) = proc.communicate()
-                self.log.WriteText(out)
-                self.log.WriteText(err)
+        def errors(v):
+            print 'ERRORS:', v
+      
+        def step1():
+            wx.CallAfter(self.gauge.SetValue, 10)            
+            self.log.AddText("Creating PDF (step 1/3)...\n")        
+            cmd = " ".join([config.pdflatex,'-interaction=batchmode',texfile])
+            p = wxPopen3(cmd, [], output, errors, step2, self)
 
-        self.log.WriteText("Creating PDF (step 1/3)...\n")
-        
-        self.log.WriteText("Executing %s...\n" % pdflatex)
-        myexec([pdflatex,'-interaction=nonstopmode','export.tex'])        
-#        myexec([pdflatex,'-interaction=batchmode','export.tex'])
-        self.log.WriteText("Making index...\n")
-        myexec([makeindex,'export.idx'])
-        wx.CallAfter(self.gauge.SetValue, 40)        
+        def step2():
+            self.log.AddText("Making index...\n")
+            cmd = " ".join([config.makeindex,idxfile])
+            p = wxPopen3(cmd, [], output, errors, step3, self)
 
-        self.log.WriteText("Creating PDF (step 2/3)...\n")
-        myexec([pdflatex,'-interaction=nonstopmode','export.tex'])        
-#        myexec([pdflatex,'-interaction=batchmode','export.tex'])
-        wx.CallAfter(self.gauge.SetValue, 70)                
+        def step3():
+            wx.CallAfter(self.gauge.SetValue, 40)                    
+            self.log.AddText("Creating PDF (step 2/3)...\n")
+            cmd = " ".join([config.pdflatex,'-interaction=batchmode',texfile])
+            p = wxPopen3(cmd, [], output, errors, step4, self)
 
-        myexec([pdflatex,'-interaction=nonstopmode','export.tex'])        
-#        myexec([pdflatex,'-interaction=batchmode','export.tex'])
-        os.chdir(current_path)
-        wx.CallAfter(self.gauge.SetValue, 100)
-        wx.CallAfter(self.OnMakePDFDone)                
+        def step4():
+            wx.CallAfter(self.gauge.SetValue, 70)                            
+            self.log.AddText("Creating PDF (step 3/3)...\n")        
+            cmd = " ".join([config.pdflatex,'-interaction=batchmode',texfile])
+            p = wxPopen3(cmd, [], output, errors, step5, self)
+
+        def step5():
+            os.chdir(config.current_path)
+            wx.CallAfter(self.gauge.SetValue, 100)
+            wx.CallAfter(self.OnMakePDFDone)                
+
+        step1()
 
     def OnGeneratePDF(self,e):
         if not self.pnl.GetRootItem():
             return
 
-        if not self.license.isvalid() or self.license.count < 0:
-            return
+        if HAS_LICENCE:
+            if not self.license.isvalid() or self.license.count < 0:
+                return
                   
         self.log.Clear()        
         self.log.Show(True)
         self.gauge.Show(True)        
         self.GetSizer().Layout()            
-        thread.start_new_thread(self.DoMakePDF, ())
+##        thread.start_new_thread(self.DoMakePDF, ())
+        self.DoMakePDF()
         
     def OnMakePDFDone(self):        
         self.log.Show(False)        
         self.gauge.Show(False)
         self.GetSizer().Layout()
-
-        f = open(os.path.join("build","export.log"), "r")
+        
+        f = open(os.path.join(config.build_path,"export.log"), "r")
         log = f.read()
         f.close()
         a = log.split("Output written on export.pdf (")
         if len(a)>1:
             pages = int(a[1].split(" ")[0])
             print "Output %d pages" % pages
-            self.license.dec(pages)
-            self.license.save("license.lic")
-            self.mystatusbar.SetStatusText( str(self.license), 0)
+            if HAS_LICENCE:
+                self.license.dec(pages)
+                self.license.save("license.lic")
+                self.mystatusbar.SetStatusText( str(self.license), 0)
         
-        os.startfile(os.path.join("build","export.pdf"))
+        os.startfile(os.path.join(config.build_path,"export.pdf"))
         
     def OnViewStatusbar(self, event):
         if self.mystatusbar.IsShown():
